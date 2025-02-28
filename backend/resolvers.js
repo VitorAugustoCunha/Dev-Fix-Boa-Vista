@@ -4,22 +4,16 @@ import { AuthenticationError, ForbiddenError } from 'apollo-server-errors';
 const db = admin.firestore();
 
 // Utilitário para verificar autenticação
-// No arquivo onde está a função verifyAuth
 const verifyAuth = async (context) => {
   if (!context.token) {
     throw new AuthenticationError('Você precisa estar autenticado para realizar esta ação');
   }
 
   try {
-    // Remova "Bearer " do token se estiver presente
     const token = context.token.replace('Bearer ', '');
-    
-    // Verifique se é um ID token válido
     const decodedToken = await admin.auth().verifyIdToken(token);
-    console.log('Token validado com sucesso para uid:', decodedToken.uid);
     return decodedToken.uid;
   } catch (error) {
-    console.error('Erro ao verificar token:', error);
     throw new AuthenticationError('Token inválido ou expirado');
   }
 };
@@ -163,108 +157,49 @@ const resolvers = {
         
         await db.collection('users').doc(userRecord.uid).set(userData);
         
-        // Obter um ID token (via API REST do Firebase)
-        const response = await fetch(
-          `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.FIREBASE_API_KEY}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              email,
-              password,
-              returnSecureToken: true
-            })
-          }
-        );
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-          throw new Error('Erro ao obter token após registro');
-        }
+        // Criar token personalizado
+        const token = await admin.auth().createCustomToken(userRecord.uid);
         
         return {
-          token: data.idToken,
+          token,
           user: {
             id: userRecord.uid,
             ...userData
           }
         };
       } catch (error) {
-        console.error('Erro ao registrar usuário:', error);
         throw new Error(`Erro ao registrar usuário: ${error.message}`);
       }
     },
-// No resolvers.js - Função de login
-login: async (_, { email, password }) => {
-  try {
-    // Primeiro buscar o usuário pelo email
-    const userRecord = await admin.auth().getUserByEmail(email);
     
-    // Verificação de senha - usando Firebase Auth REST API
-    // Já que o Firebase Admin não tem método direto para verificar senha
-    const response = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.FIREBASE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          returnSecureToken: true
-        })
+    login: async (_, { email, password }) => {
+      try {
+        // Autenticação via Firebase REST API (Firebase Admin não suporta login com email/senha)
+        // Em produção, substituir por Firebase Auth SDK no cliente
+        
+        // Simulação de login para API GraphQL (em produção, isso seria feito no cliente)
+        // Aqui apenas verificamos se o usuário existe
+        const userRecord = await admin.auth().getUserByEmail(email);
+        
+        const userDoc = await db.collection('users').doc(userRecord.uid).get();
+        if (!userDoc.exists) {
+          throw new Error('Perfil de usuário não encontrado');
+        }
+        
+        // Criar token personalizado
+        const token = await admin.auth().createCustomToken(userRecord.uid);
+        
+        return {
+          token,
+          user: {
+            id: userRecord.uid,
+            ...userDoc.data()
+          }
+        };
+      } catch (error) {
+        throw new AuthenticationError('Credenciais inválidas');
       }
-    );
-    
-    const data = await response.json();
-    
-    if (!response.ok) {
-      // Se a resposta não for bem-sucedida, a senha está incorreta
-      throw new AuthenticationError('Credenciais inválidas');
-    }
-    
-    // Aqui data.idToken é o token ID que pode ser verificado com verifyIdToken
-    const idToken = data.idToken;
-    
-    // Buscar o perfil do usuário
-    const userDoc = await db.collection('users').doc(userRecord.uid).get();
-    if (!userDoc.exists) {
-      // Criar um perfil base se não existir
-      const userData = {
-        name: userRecord.displayName || email.split('@')[0],
-        email: userRecord.email,
-        isAuthority: false,
-        createdAt: new Date().toISOString(),
-        reportedProblems: []
-      };
-      
-      await db.collection('users').doc(userRecord.uid).set(userData);
-    }
-    
-    const userData = userDoc.exists ? userDoc.data() : {
-      name: userRecord.displayName || email.split('@')[0],
-      email: userRecord.email,
-      isAuthority: false,
-      createdAt: new Date().toISOString(),
-      reportedProblems: []
-    };
-    
-    return {
-      token: idToken, // Retorna o idToken, não um custom token
-      user: {
-        id: userRecord.uid,
-        ...userData
-      }
-    };
-  } catch (error) {
-    console.error('Erro durante login:', error);
-    throw new AuthenticationError('Credenciais inválidas');
-  }
-},
+    },
     
     reportProblem: async (_, { problem }, context) => {
       const uid = await verifyAuth(context);

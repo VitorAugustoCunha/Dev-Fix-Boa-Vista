@@ -10,22 +10,30 @@ import resolvers from './resolvers.js';
 
 async function startServer() {
   const app = express();
-  
 
   app.use((req, res, next) => {
-
+    console.log('Requisição recebida:', {
+      method: req.method,
+      path: req.path,
+      headers: req.headers,
+      body: req.body
+    });
     next();
   });
   
-
   // Middlewares
-  app.use(cors({
-    origin: '*',
-    credentials: true
-  }));  app.use(helmet({
+  app.use(cors());
+  app.use(helmet({
     contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false
   }));
   app.use(morgan('dev'));
+  app.use(express.json());
+
+  // Verificar a existência da variável JWT_SECRET
+  if (!process.env.JWT_SECRET) {
+    console.error('ERRO: JWT_SECRET não definido nas variáveis de ambiente');
+    process.exit(1);
+  }
 
   // Configuração do Apollo Server
   const server = new ApolloServer({
@@ -38,7 +46,11 @@ async function startServer() {
     },
     // Habilita o playground em desenvolvimento
     introspection: true,
-    playground: true
+    playground: true,
+    formatError: (error) => {
+      console.error('GraphQL Error:', error);
+      return error;
+    }
   });
 
   // Inicia o Apollo Server

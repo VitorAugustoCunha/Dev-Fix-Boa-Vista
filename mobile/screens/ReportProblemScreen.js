@@ -292,22 +292,24 @@ const ReportProblemScreen = ({ navigation }) => {
         <Divider style={styles.divider} />
         
         <Text style={styles.sectionTitle}>Fotos</Text>
-        <Text style={styles.sectionSubtitle}>Adicione fotos para mostrar o problema</Text>
-        
-        <View style={styles.photoButtons}>
-          <Button
-            title="Galeria"
-            icon={<Ionicons name="images" size={20} color="white" style={styles.buttonIcon} />}
-            buttonStyle={styles.photoButton}
-            onPress={pickImage}
-          />
-          <Button
-            title="Câmera"
-            icon={<Ionicons name="camera" size={20} color="white" style={styles.buttonIcon} />}
-            buttonStyle={styles.photoButton}
-            onPress={takePhoto}
-          />
-        </View>
+      <Text style={styles.sectionSubtitle}>Adicione fotos para mostrar o problema</Text>
+
+      <View style={styles.photoButtons}>
+        <Button
+          title="Galeria"
+          icon={<Ionicons name="images" size={20} color="white" style={styles.buttonIcon} />}
+          buttonStyle={styles.photoButton}
+          containerStyle={styles.photoButtonContainer}
+          onPress={pickImage}
+        />
+        <Button
+          title="Câmera"
+          icon={<Ionicons name="camera" size={20} color="white" style={styles.buttonIcon} />}
+          buttonStyle={styles.photoButton}
+          containerStyle={styles.photoButtonContainer}
+          onPress={takePhoto}
+        />
+      </View>
         
         {photos.length > 0 && (
           <View style={styles.photoContainer}>
@@ -404,8 +406,8 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   photoButton: {
-    width: '100%',
     backgroundColor: '#1E88E5',
+    paddingVertical: 10,
   },
   buttonIcon: {
     marginRight: 10,
@@ -434,6 +436,9 @@ const styles = StyleSheet.create({
   submitButtonContainer: {
     marginTop: 20,
     marginBottom: 30,
+  },
+  photoButtonContainer: {
+    width: '48%', // Um pouco menos da metade para dar espaço entre eles
   },
   submitButton: {
     backgroundColor: '#1E88E5',

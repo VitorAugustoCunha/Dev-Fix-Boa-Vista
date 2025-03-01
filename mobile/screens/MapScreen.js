@@ -1,11 +1,18 @@
+// mobile/screens/MapScreen.js
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { 
+  StyleSheet, 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  Modal, 
+  ActivityIndicator 
+} from 'react-native';
 import MapView, { Marker, Heatmap, Callout } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useQuery, gql } from '@apollo/client';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Chip, Overlay } from 'react-native-elements';
-
 
 // Consulta GraphQL para obter os problemas
 const GET_PROBLEMS = gql`
@@ -71,8 +78,12 @@ const MapScreen = ({ navigation }) => {
     fetchPolicy: 'network-only',
   });
   
-  const { data: heatmapData } = useQuery(GET_HEATMAP_DATA, {
-    skip: !showHeatmap,
+  const { loading: heatmapLoading, data: heatmapData } = useQuery(GET_HEATMAP_DATA, {
+    skip: !showHeatmap, // Só busca os dados quando showHeatmap for true
+    onError: (error) => {
+      console.error('Erro ao carregar dados do mapa de calor:', error);
+      setShowHeatmap(false); // Desativa se der erro
+    }
   });
   
   // Obter localização atual do usuário
@@ -89,16 +100,41 @@ const MapScreen = ({ navigation }) => {
     })();
   }, []);
   
+  // Função segura para alternar o mapa de calor
+  const toggleHeatmap = () => {
+    try {
+      const newState = !showHeatmap;
+      setShowHeatmap(newState);
+      
+      // Se ativando o heatmap, mas não há pontos, mostrar alerta
+      if (newState && (!heatmapData || !heatmapData.heatmapData || getHeatmapPoints().length === 0)) {
+        alert('Sem dados suficientes para exibir o mapa de calor');
+      }
+    } catch (error) {
+      console.error('Erro ao alternar mapa de calor:', error);
+      setShowHeatmap(false);
+    }
+  };
+  
   // Processar pontos para o mapa de calor
   const getHeatmapPoints = () => {
-    if (!heatmapData || !heatmapData.heatmapData) return [];
+    if (!heatmapData || !heatmapData.heatmapData || heatmapData.heatmapData.length === 0) {
+      console.log('Sem pontos para o mapa de calor');
+      return []; // Retorna array vazio se não houver dados
+    }
     
-    return heatmapData.heatmapData.map(problem => ({
+    const points = heatmapData.heatmapData.map(problem => ({
       latitude: problem.location.latitude,
       longitude: problem.location.longitude,
       weight: problem.severity === 'HIGH' ? 1.0 : 
               problem.severity === 'MEDIUM' ? 0.7 : 0.4,
     }));
+    
+    // Verificação adicional para garantir pontos válidos
+    return points.filter(point => 
+      point.latitude && point.longitude && 
+      !isNaN(point.latitude) && !isNaN(point.longitude)
+    );
   };
   
   // Categorias disponíveis
@@ -172,7 +208,8 @@ const MapScreen = ({ navigation }) => {
           ))}
           
           {/* Mapa de calor */}
-          {showHeatmap && heatmapData && (
+          {/* Mapa de calor - apenas renderiza se houver pontos */}
+          {showHeatmap && heatmapData && getHeatmapPoints().length > 0 && (
             <Heatmap
               points={getHeatmapPoints()}
               radius={20}
@@ -207,9 +244,17 @@ const MapScreen = ({ navigation }) => {
             styles.controlButton, 
             showHeatmap && styles.activeButton
           ]}
-          onPress={() => setShowHeatmap(!showHeatmap)}
+          onPress={toggleHeatmap}
+          disabled={heatmapLoading}
         >
           <Ionicons name="flame" size={24} color="white" />
+          {heatmapLoading && (
+            <ActivityIndicator 
+              size="small" 
+              color="white" 
+              style={styles.buttonLoader}
+            />
+          )}
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -334,6 +379,11 @@ const styles = StyleSheet.create({
   activeButton: {
     backgroundColor: '#FF5722',
   },
+  buttonLoader: {
+    position: 'absolute',
+    right: -8,
+    top: -8,
+  },
   modalContainer: {
     width: '90%',
     padding: 20,
@@ -367,6 +417,7 @@ const styles = StyleSheet.create({
   modalButton: {
     width: '45%',
   },
+
 });
 
 export default MapScreen;

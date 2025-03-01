@@ -15,13 +15,14 @@ import AuthContext from '../contexts/AuthContext';
 
 // Mutation para registro
 const REGISTER_USER = gql`
-  mutation RegisterUser($name: String!, $email: String!, $password: String!) {
-    registerUser(name: $name, email: $email, password: $password) {
+  mutation Register($name: String!, $email: String!, $password: String!) {
+    register(name: $name, email: $email, password: $password) {
       token
       user {
         id
         name
         email
+        isAuthority
       }
     }
   }
@@ -40,10 +41,15 @@ const RegisterScreen = ({ navigation }) => {
   const [registerUser, { loading, error }] = useMutation(REGISTER_USER, {
     onCompleted: (data) => {
       signUp({ 
-        token: data.registerUser.token, 
-        userId: data.registerUser.user.id 
+        token: data.register.token, 
+        userId: data.register.user.id 
       });
+    },
+
+    onError: (error) => {
+      console.log(error);
     }
+    
   });
   
   // Validações

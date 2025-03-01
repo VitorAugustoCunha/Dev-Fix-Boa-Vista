@@ -133,7 +133,7 @@ const typeDefs = gql`
   }
 
   type Mutation {
-    registerUser(name: String!, email: String!, password: String!): AuthPayload
+    register(name: String!, email: String!, password: String!): AuthPayload
     login(email: String!, password: String!): AuthPayload
     
     reportProblem(problem: ProblemInput!): Problem

@@ -49,47 +49,19 @@ const httpLink = createHttpLink({
 
 // Auth link para adicionar o token em cada requisição
 const authLink = setContext(async (_, { headers }) => {
-  try {
-    const token = await AsyncStorage.getItem('userToken');
-    return {
-      headers: {
-        ...headers,
-        authorization: token ? `Bearer ${token}` : '',
-      },
-    };
-  } catch (e) {
-    console.error('Erro ao recuperar token:', e);
-    return { headers };
-  }
+  const token = await AsyncStorage.getItem('userToken');
+  return {
+    headers: {
+      ...headers,
+      authorization: token ? `Bearer ${token}` : '',
+    },
+  };
 });
 
 // Cliente Apollo
 const client = new ApolloClient({
   link: authLink.concat(httpLink),
   cache: new InMemoryCache(),
-  defaultOptions: {
-    watchQuery: {
-      fetchPolicy: 'network-only',
-      errorPolicy: 'all',
-    },
-    query: {
-      fetchPolicy: 'network-only',
-      errorPolicy: 'all',
-    },
-    mutate: {
-      errorPolicy: 'all',
-    },
-  },
-  onError: (({ graphQLErrors, networkError }) => {
-    if (graphQLErrors) {
-      graphQLErrors.forEach(({ message, locations, path }) =>
-        console.log(`[GraphQL error]: Message: ${message}, Location: ${locations}, Path: ${path}`)
-      );
-    }
-    if (networkError) {
-      console.log(`[Network error]: ${networkError}`);
-    }
-  })
 });
 
 const Stack = createStackNavigator();
@@ -170,13 +142,18 @@ export default function App() {
   }, []);
 
   const authContext = {
-    signIn: async (data) => {
+// No frontend, após receber o custom token
+    signIn: async (customToken) => {
       try {
-        await AsyncStorage.setItem('userToken', data.token);
-        await AsyncStorage.setItem('userId', data.userId);
-        setState({ ...state, userToken: data.token, userId: data.userId });
-      } catch (e) {
-        console.log('Erro ao salvar dados de autenticação', e);
+        // Troque o custom token por um ID token
+        const userCredential = await firebase.auth().signInWithCustomToken(customToken);
+        const idToken = await userCredential.user.getIdToken();
+        
+        // Use o ID token para autenticação
+        await AsyncStorage.setItem('userToken', idToken);
+        // ...resto do código
+      } catch (error) {
+        console.error("Erro ao obter ID token:", error);
       }
     },
     signOut: async () => {

@@ -35,7 +35,7 @@ const LoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const { signIn } = useContext(AuthContext);
-  
+    
   // Mutation de login
   const [login, { loading, error }] = useMutation(LOGIN, {
     onCompleted: (data) => {
@@ -46,7 +46,7 @@ const LoginScreen = ({ navigation }) => {
     }
   });
   
-  // Função para realizar login
+  // Função para realizar login - não mudou
   const handleLogin = () => {
     if (!email || !password) {
       alert('Por favor, preencha todos os campos');

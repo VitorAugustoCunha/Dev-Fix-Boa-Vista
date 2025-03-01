@@ -1,19 +1,35 @@
-import './firebase-config.js';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { AuthenticationError, ForbiddenError, UserInputError } from 'apollo-server-express';
 import admin from 'firebase-admin';
-import { AuthenticationError, ForbiddenError } from 'apollo-server-errors';
 const db = admin.firestore();
 
-// Utilitário para verificar autenticação
+// Função para gerar token JWT
+const generateToken = (user) => {
+  return jwt.sign(
+    { 
+      id: user.id, 
+      email: user.email, 
+      isAuthority: user.isAuthority 
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+};
+
+// Função para verificar autenticação
 const verifyAuth = async (context) => {
-  if (!context.token) {
-    throw new AuthenticationError('Você precisa estar autenticado para realizar esta ação');
+  const authHeader = context.token;
+  if (!authHeader) {
+    throw new AuthenticationError('Token de autenticação não fornecido');
   }
 
   try {
-    const token = context.token.replace('Bearer ', '');
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    return decodedToken.uid;
-  } catch (error) {
+    const token = authHeader.replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return decoded.id;
+  } catch (err) {
+    console.error('Erro ao verificar token:', err);
     throw new AuthenticationError('Token inválido ou expirado');
   }
 };
@@ -71,7 +87,9 @@ const resolvers = {
       if (!userDoc.exists) {
         throw new Error('Usuário não encontrado');
       }
-      return { id: userDoc.id, ...userDoc.data() };
+      const userData = userDoc.data();
+      delete userData.password; // Não retornar a senha
+      return { id: userDoc.id, ...userData };
     },
     
     me: async (_, __, context) => {
@@ -80,7 +98,9 @@ const resolvers = {
       if (!userDoc.exists) {
         throw new Error('Usuário não encontrado');
       }
-      return { id: userDoc.id, ...userDoc.data() };
+      const userData = userDoc.data();
+      delete userData.password; // Não retornar a senha
+      return { id: userDoc.id, ...userData };
     },
     
     dashboard: async (_, __, context) => {
@@ -137,17 +157,45 @@ const resolvers = {
   },
   
   Mutation: {
-    registerUser: async (_, { name, email, password }) => {
+    register: async (_, { name, email, password }) => {
       try {
-        // Criar usuário no Firebase Auth
-        const userRecord = await admin.auth().createUser({
-          email,
-          password,
-          displayName: name
-        });
+        // Validação de dados
+        if (!name || !email || !password) {
+          throw new UserInputError('Todos os campos são obrigatórios');
+        }
         
-        // Criar perfil no Firestore
-        const userData = {
+        if (password.length < 6) {
+          throw new UserInputError('A senha deve ter pelo menos 6 caracteres');
+        }
+        
+        // Verificar se o email já está em uso
+        const emailCheck = await db.collection('users')
+          .where('email', '==', email)
+          .get();
+          
+        if (!emailCheck.empty) {
+          throw new UserInputError('Este email já está em uso');
+        }
+        
+        // Criptografar a senha
+        const hashedPassword = await bcrypt.hash(password, 12);
+        
+        // Criar novo documento de usuário
+        const newUser = {
+          name,
+          email,
+          password: hashedPassword,
+          isAuthority: false,
+          createdAt: new Date().toISOString(),
+          reportedProblems: []
+        };
+        
+        // Salvar no Firestore
+        const userRef = await db.collection('users').add(newUser);
+        
+        // Objeto de usuário sem a senha para retornar
+        const user = {
+          id: userRef.id,
           name,
           email,
           isAuthority: false,
@@ -155,49 +203,56 @@ const resolvers = {
           reportedProblems: []
         };
         
-        await db.collection('users').doc(userRecord.uid).set(userData);
+        // Gerar token JWT
+        const token = generateToken({...user, id: userRef.id});
         
-        // Criar token personalizado
-        const token = await admin.auth().createCustomToken(userRecord.uid);
-        
-        return {
-          token,
-          user: {
-            id: userRecord.uid,
-            ...userData
-          }
-        };
+        return { token, user };
       } catch (error) {
-        throw new Error(`Erro ao registrar usuário: ${error.message}`);
+        console.error('Erro ao registrar usuário:', error);
+        throw error;
       }
     },
     
     login: async (_, { email, password }) => {
       try {
-        // Autenticação via Firebase REST API (Firebase Admin não suporta login com email/senha)
-        // Em produção, substituir por Firebase Auth SDK no cliente
-        
-        // Simulação de login para API GraphQL (em produção, isso seria feito no cliente)
-        // Aqui apenas verificamos se o usuário existe
-        const userRecord = await admin.auth().getUserByEmail(email);
-        
-        const userDoc = await db.collection('users').doc(userRecord.uid).get();
-        if (!userDoc.exists) {
-          throw new Error('Perfil de usuário não encontrado');
+        // Buscar usuário pelo email
+        const usersRef = await db.collection('users')
+          .where('email', '==', email)
+          .limit(1)
+          .get();
+          
+        if (usersRef.empty) {
+          throw new AuthenticationError('Credenciais inválidas');
         }
         
-        // Criar token personalizado
-        const token = await admin.auth().createCustomToken(userRecord.uid);
+        const userDoc = usersRef.docs[0];
+        const userData = userDoc.data();
         
-        return {
-          token,
-          user: {
-            id: userRecord.uid,
-            ...userDoc.data()
-          }
+        // Verificar a senha
+        const isPasswordValid = await bcrypt.compare(password, userData.password);
+        
+        if (!isPasswordValid) {
+          throw new AuthenticationError('Credenciais inválidas');
+        }
+        
+        // Remover a senha do objeto de usuário
+        const user = {
+          id: userDoc.id,
+          name: userData.name,
+          email: userData.email,
+          isAuthority: userData.isAuthority,
+          profilePicture: userData.profilePicture,
+          createdAt: userData.createdAt,
+          reportedProblems: userData.reportedProblems || []
         };
+        
+        // Gerar token JWT
+        const token = generateToken({...user, id: userDoc.id});
+        
+        return { token, user };
       } catch (error) {
-        throw new AuthenticationError('Credenciais inválidas');
+        console.error('Erro ao fazer login:', error);
+        throw error;
       }
     },
     

@@ -33,7 +33,10 @@ const GET_PROBLEM_DETAILS = gql`
         longitude
         address
       }
-      photos
+      photos {
+        url
+        createdAt
+      }
       upvotes
       comments {
         id

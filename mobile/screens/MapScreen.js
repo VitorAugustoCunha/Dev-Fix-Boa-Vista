@@ -1,18 +1,21 @@
 // mobile/screens/MapScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, 
   View, 
   Text, 
   TouchableOpacity, 
-  Modal, 
-  ActivityIndicator 
+  ActivityIndicator,
+  Alert
 } from 'react-native';
-import MapView, { Marker, Heatmap, Callout } from 'react-native-maps';
+import MapView, { Marker, Heatmap, Callout, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useQuery, gql } from '@apollo/client';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Chip, Overlay } from 'react-native-elements';
+import { getDistance } from 'geolib';
+import NearbyProblemsModal from '../components/NearbyProblemsModal';
+
 
 // Consulta GraphQL para obter os problemas
 const GET_PROBLEMS = gql`
@@ -30,6 +33,10 @@ const GET_PROBLEMS = gql`
       status
       upvotes
       createdAt
+      photos {
+        url
+        createdAt
+      }
     }
   }
 `;
@@ -65,53 +72,133 @@ const categoryIcons = {
 };
 
 const MapScreen = ({ navigation }) => {
+  const mapRef = useRef(null);
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedSeverity, setSelectedSeverity] = useState(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
-  
+  const [showNearbyRadius, setShowNearbyRadius] = useState(true);
+  const [hasNearbyProblems, setHasNearbyProblems] = useState(false);
+  const [nearbyProblemsCount, setNearbyProblemsCount] = useState(0);
+  const NEARBY_RADIUS = 300; // Raio em metros para ocorrências próximas
+  const [isNearbyModalVisible, setIsNearbyModalVisible] = useState(false);
+
   // Consultas GraphQL
   const { loading, error, data, refetch } = useQuery(GET_PROBLEMS, {
     variables: { category: selectedCategory, severity: selectedSeverity },
     fetchPolicy: 'network-only',
+    onError: (error) => {
+      console.error("Erro na consulta de problemas:", error);
+    }
   });
   
   const { loading: heatmapLoading, data: heatmapData } = useQuery(GET_HEATMAP_DATA, {
-    skip: !showHeatmap, // Só busca os dados quando showHeatmap for true
+    skip: !showHeatmap,
     onError: (error) => {
-      console.error('Erro ao carregar dados do mapa de calor:', error);
-      setShowHeatmap(false); // Desativa se der erro
+      console.error("Erro na consulta de mapa de calor:", error);
+      setShowHeatmap(false);
     }
   });
   
   // Obter localização atual do usuário
   useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Permissão para acessar a localização foi negada');
-        return;
+    let isMounted = true;
+    
+    const getLocationAsync = async () => {
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          if (isMounted) {
+            setErrorMsg('Permissão para acessar a localização foi negada');
+          }
+          return;
+        }
+        
+        let location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced
+        });
+        
+        if (isMounted) {
+          console.log('Localização obtida:', location.coords.latitude, location.coords.longitude);
+          setLocation(location);
+        }
+      } catch (error) {
+        console.error('Erro ao obter localização:', error);
+        if (isMounted) {
+          setErrorMsg('Erro ao obter sua localização. Verifique se o GPS está ativado.');
+        }
       }
-      
-      let location = await Location.getCurrentPositionAsync({});
-      setLocation(location);
-    })();
+    };
+    
+    getLocationAsync();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  // Verificar se existem problemas próximos quando os dados mudam
+  useEffect(() => {
+    if (location && data && data.problems && data.problems.length > 0) {
+      const currentPosition = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      };
+      
+      try {
+        // Filtrar problemas próximos
+        const nearbyProblems = data.problems.filter(problem => {
+          if (!problem.location || !problem.location.latitude || !problem.location.longitude) {
+            return false;
+          }
+          
+          try {
+            const distance = getDistance(
+              currentPosition,
+              {
+                latitude: problem.location.latitude,
+                longitude: problem.location.longitude
+              }
+            );
+            
+            return distance <= NEARBY_RADIUS;
+          } catch (err) {
+            console.warn('Erro ao calcular distância para problema:', problem.id, err);
+            return false;
+          }
+        });
+        
+        const hasNearby = nearbyProblems.length > 0;
+        setHasNearbyProblems(hasNearby);
+        setNearbyProblemsCount(nearbyProblems.length);
+        
+        console.log(`Encontrados ${nearbyProblems.length} problemas próximos`);
+      } catch (err) {
+        console.error('Erro ao verificar problemas próximos:', err);
+      }
+    }
+  }, [location, data]);
   
-  // Função segura para alternar o mapa de calor
+  // Função para alternar a visibilidade do raio de proximidade
+  const toggleNearbyRadius = () => {
+    setShowNearbyRadius(prev => !prev);
+  };
+  
+  // Função para alternar o mapa de calor
   const toggleHeatmap = () => {
     try {
-      const newState = !showHeatmap;
-      setShowHeatmap(newState);
-      
-      // Se ativando o heatmap, mas não há pontos, mostrar alerta
-      if (newState && (!heatmapData || !heatmapData.heatmapData || getHeatmapPoints().length === 0)) {
-        alert('Sem dados suficientes para exibir o mapa de calor');
+      if (!showHeatmap && (!heatmapData || !heatmapData.heatmapData || heatmapData.heatmapData.length === 0)) {
+        Alert.alert(
+          "Mapa de Calor", 
+          "Carregando dados para o mapa de calor...",
+          [{ text: "OK" }]
+        );
       }
+      setShowHeatmap(prev => !prev);
     } catch (error) {
-      console.error('Erro ao alternar mapa de calor:', error);
+      console.error("Erro ao alternar mapa de calor:", error);
       setShowHeatmap(false);
     }
   };
@@ -119,22 +206,36 @@ const MapScreen = ({ navigation }) => {
   // Processar pontos para o mapa de calor
   const getHeatmapPoints = () => {
     if (!heatmapData || !heatmapData.heatmapData || heatmapData.heatmapData.length === 0) {
-      console.log('Sem pontos para o mapa de calor');
-      return []; // Retorna array vazio se não houver dados
+      return [];
     }
     
-    const points = heatmapData.heatmapData.map(problem => ({
-      latitude: problem.location.latitude,
-      longitude: problem.location.longitude,
-      weight: problem.severity === 'HIGH' ? 1.0 : 
-              problem.severity === 'MEDIUM' ? 0.7 : 0.4,
-    }));
-    
-    // Verificação adicional para garantir pontos válidos
-    return points.filter(point => 
-      point.latitude && point.longitude && 
-      !isNaN(point.latitude) && !isNaN(point.longitude)
-    );
+    return heatmapData.heatmapData
+      .filter(problem => 
+        problem.location && 
+        problem.location.latitude && 
+        problem.location.longitude &&
+        !isNaN(problem.location.latitude) &&
+        !isNaN(problem.location.longitude)
+      )
+      .map(problem => ({
+        latitude: problem.location.latitude,
+        longitude: problem.location.longitude,
+        weight: problem.severity === 'HIGH' ? 1.0 : 
+                problem.severity === 'MEDIUM' ? 0.7 : 0.4,
+      }));
+  };
+  
+  // Navegar para tela de problemas próximos
+  const goToNearbyProblems = () => {
+    if (hasNearbyProblems) {
+      setIsNearbyModalVisible(true);
+    } else {
+      Alert.alert(
+        "Sem Ocorrências Próximas",
+        `Não há ocorrências dentro de ${NEARBY_RADIUS}m da sua localização.`,
+        [{ text: "OK" }]
+      );
+    }
   };
   
   // Categorias disponíveis
@@ -168,60 +269,265 @@ const MapScreen = ({ navigation }) => {
     setFilterModalVisible(false);
   };
   
+  // Função para agrupar marcadores (simulação de clustering)
+  const groupMarkers = (markers) => {
+    if (!markers || markers.length === 0) return [];
+    
+    // Esta é uma implementação básica para simular clustering
+    // Em um app real, você usaria um algoritmo mais sofisticado
+    const groups = {};
+    const groupRadius = 0.005; // Aproximadamente 500m
+    
+    markers.forEach(marker => {
+      if (!marker.location || !marker.location.latitude || !marker.location.longitude) {
+        return;
+      }
+      
+      // Arredondar as coordenadas para agrupar pontos próximos
+      const lat = Math.round(marker.location.latitude / groupRadius) * groupRadius;
+      const lng = Math.round(marker.location.longitude / groupRadius) * groupRadius;
+      const key = `${lat},${lng}`;
+      
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      
+      groups[key].push(marker);
+    });
+    
+    return Object.entries(groups).map(([key, items]) => {
+      const [lat, lng] = key.split(',').map(Number);
+      
+      if (items.length === 1) {
+        // Retornar marcador único
+        return {
+          id: items[0].id,
+          coordinate: {
+            latitude: items[0].location.latitude,
+            longitude: items[0].location.longitude
+          },
+          severity: items[0].severity,
+          isCluster: false,
+          ...items[0]
+        };
+      } else {
+        // Retornar cluster
+        return {
+          id: `cluster-${key}`,
+          coordinate: { latitude: lat, longitude: lng },
+          count: items.length,
+          isCluster: true,
+          markers: items
+        };
+      }
+    });
+  };
+  
   // Renderizar o mapa
   return (
     <View style={styles.container}>
       {location ? (
-        <MapView
-          style={styles.map}
-          initialRegion={{
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          }}
-          showsUserLocation
-          showsMyLocationButton
-        >
-          {/* Renderizar marcadores */}
-          {!loading && data && data.problems && data.problems.map(problem => (
-            <Marker
-              key={problem.id}
-              coordinate={{
-                latitude: problem.location.latitude,
-                longitude: problem.location.longitude,
-              }}
-              pinColor={severityColors[problem.severity]}
-              onPress={() => navigation.navigate('ProblemDetail', { problemId: problem.id })}
-            >
-              <Callout>
-                <View style={styles.callout}>
-                  <Text style={styles.calloutTitle}>{problem.title}</Text>
-                  <Text style={styles.calloutDescription}>{problem.description.substring(0, 50)}...</Text>
-                  <Text style={styles.calloutInfo}>
-                    <Ionicons name={categoryIcons[problem.category]} size={12} /> {problem.category.replace('_', ' ')}
-                  </Text>
-                  <Text style={styles.calloutInfo}>👍 {problem.upvotes}</Text>
-                </View>
-              </Callout>
-            </Marker>
-          ))}
+        <>
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            provider={PROVIDER_GOOGLE}
+            initialRegion={{
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              latitudeDelta: 0.02,
+              longitudeDelta: 0.02,
+            }}
+            showsUserLocation
+            showsMyLocationButton
+          >
+            {/* Círculo de raio de proximidade */}
+            {showNearbyRadius && (
+              <Circle
+                center={{
+                  latitude: location.coords.latitude,
+                  longitude: location.coords.longitude,
+                }}
+                radius={NEARBY_RADIUS}
+                fillColor="rgba(30, 136, 229, 0.15)"
+                strokeColor="rgba(30, 136, 229, 0.5)"
+                strokeWidth={2}
+                zIndex={1}
+              />
+            )}
+            
+            {/* Renderizar marcadores com clustering simulado */}
+            {!loading && data && data.problems && 
+              groupMarkers(data.problems).map(item => (
+                item.isCluster ? (
+                  // Renderizar cluster
+                  <Marker
+                    key={item.id}
+                    coordinate={item.coordinate}
+                    onPress={() => {
+                      // Zoom in quando clica em um cluster
+                      mapRef.current?.animateToRegion({
+                        latitude: item.coordinate.latitude,
+                        longitude: item.coordinate.longitude,
+                        latitudeDelta: 0.005,
+                        longitudeDelta: 0.005,
+                      }, 500);
+                    }}
+                  >
+                    <View style={styles.clusterMarker}>
+                      <Text style={styles.clusterText}>{item.count}</Text>
+                    </View>
+                  </Marker>
+                ) : (
+                  // Renderizar marcador individual
+                  <Marker
+                    key={item.id}
+                    coordinate={item.coordinate}
+                    pinColor={severityColors[item.severity]}
+                    onPress={() => navigation.navigate('ProblemDetail', { problemId: item.id })}
+                  >
+                    <Callout>
+                      <View style={styles.callout}>
+                        <Text style={styles.calloutTitle}>{item.title}</Text>
+                        <Text style={styles.calloutDescription}>{item.description.substring(0, 50)}...</Text>
+                        <Text style={styles.calloutInfo}>
+                          <Ionicons name={categoryIcons[item.category]} size={12} /> {item.category.replace('_', ' ')}
+                        </Text>
+                        <Text style={styles.calloutInfo}>👍 {item.upvotes}</Text>
+                      </View>
+                    </Callout>
+                  </Marker>
+                )
+              ))
+            }
+            
+            {/* Mapa de calor - apenas renderiza se houver pontos */}
+            {showHeatmap && getHeatmapPoints().length > 0 && (
+              <Heatmap
+                points={getHeatmapPoints()}
+                radius={20}
+                opacity={0.7}
+                gradient={{
+                  colors: ['#0000FF', '#00FF00', '#FF0000'],
+                  startPoints: [0.2, 0.5, 0.8],
+                  colorMapSize: 256,
+                }}
+              />
+            )}
+          </MapView>
           
-          {/* Mapa de calor */}
-          {/* Mapa de calor - apenas renderiza se houver pontos */}
-          {showHeatmap && heatmapData && getHeatmapPoints().length > 0 && (
-            <Heatmap
-              points={getHeatmapPoints()}
-              radius={20}
-              opacity={0.7}
-              gradient={{
-                colors: ['#0000FF', '#00FF00', '#FF0000'],
-                startPoints: [0.2, 0.5, 0.8],
-                colorMapSize: 256,
-              }}
-            />
-          )}
-        </MapView>
+          {/* Botões de controle */}
+          <View style={styles.controls}>
+            <TouchableOpacity 
+              style={styles.controlButton}
+              onPress={() => setFilterModalVisible(true)}
+            >
+              <Ionicons name="filter" size={24} color="white" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.controlButton, 
+                showHeatmap && styles.activeButton
+              ]}
+              onPress={toggleHeatmap}
+              disabled={heatmapLoading}
+            >
+              <Ionicons name="flame" size={24} color="white" />
+              {heatmapLoading && (
+                <ActivityIndicator 
+                  size="small" 
+                  color="white" 
+                  style={styles.buttonLoader}
+                />
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.controlButton}
+              onPress={() => refetch()}
+            >
+              <Ionicons name="refresh" size={24} color="white" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.controlButton,
+                showNearbyRadius && styles.activeRadiusButton
+              ]}
+              onPress={toggleNearbyRadius}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="radio" size={24} color="white" />
+            </TouchableOpacity>
+            
+            {hasNearbyProblems && (
+              <TouchableOpacity 
+                style={[styles.controlButton, styles.nearbyButton]}
+                onPress={goToNearbyProblems}
+                activeOpacity={0.7}
+              >
+                <View style={styles.badgeContainer}>
+                  <Text style={styles.badgeText}>{nearbyProblemsCount}</Text>
+                </View>
+                <Ionicons name="location" size={24} color="white" />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {/* Modal de filtros */}
+          <Overlay
+            isVisible={filterModalVisible}
+            onBackdropPress={() => setFilterModalVisible(false)}
+            overlayStyle={styles.modalContainer}
+          >
+            <Text style={styles.modalTitle}>Filtrar Problemas</Text>
+            
+            <Text style={styles.sectionTitle}>Categoria</Text>
+            <View style={styles.chipContainer}>
+              {categories.map((category) => (
+                <Chip
+                  key={category.value}
+                  title={category.label}
+                  type={selectedCategory === category.value ? 'solid' : 'outline'}
+                  containerStyle={styles.chip}
+                  onPress={() => setSelectedCategory(
+                    selectedCategory === category.value ? null : category.value
+                  )}
+                />
+              ))}
+            </View>
+            
+            <Text style={styles.sectionTitle}>Gravidade</Text>
+            <View style={styles.chipContainer}>
+              {severities.map((severity) => (
+                <Chip
+                  key={severity.value}
+                  title={severity.label}
+                  type={selectedSeverity === severity.value ? 'solid' : 'outline'}
+                  containerStyle={styles.chip}
+                  onPress={() => setSelectedSeverity(
+                    selectedSeverity === severity.value ? null : severity.value
+                  )}
+                />
+              ))}
+            </View>
+            
+            <View style={styles.modalButtons}>
+              <Button
+                title="Limpar"
+                type="outline"
+                onPress={clearFilters}
+                containerStyle={styles.modalButton}
+              />
+              <Button
+                title="Aplicar"
+                onPress={applyFilters}
+                containerStyle={styles.modalButton}
+              />
+            </View>
+          </Overlay>
+        </>
       ) : (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1E88E5" />
@@ -229,94 +535,14 @@ const MapScreen = ({ navigation }) => {
           {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
         </View>
       )}
-      
-      {/* Botões de controle */}
-      <View style={styles.controls}>
-        <TouchableOpacity 
-          style={styles.controlButton}
-          onPress={() => setFilterModalVisible(true)}
-        >
-          <Ionicons name="filter" size={24} color="white" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[
-            styles.controlButton, 
-            showHeatmap && styles.activeButton
-          ]}
-          onPress={toggleHeatmap}
-          disabled={heatmapLoading}
-        >
-          <Ionicons name="flame" size={24} color="white" />
-          {heatmapLoading && (
-            <ActivityIndicator 
-              size="small" 
-              color="white" 
-              style={styles.buttonLoader}
-            />
-          )}
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.controlButton}
-          onPress={() => refetch()}
-        >
-          <Ionicons name="refresh" size={24} color="white" />
-        </TouchableOpacity>
-      </View>
-      
-      {/* Modal de filtros */}
-      <Overlay
-        isVisible={filterModalVisible}
-        onBackdropPress={() => setFilterModalVisible(false)}
-        overlayStyle={styles.modalContainer}
-      >
-        <Text style={styles.modalTitle}>Filtrar Problemas</Text>
-        
-        <Text style={styles.sectionTitle}>Categoria</Text>
-        <View style={styles.chipContainer}>
-          {categories.map((category) => (
-            <Chip
-              key={category.value}
-              title={category.label}
-              type={selectedCategory === category.value ? 'solid' : 'outline'}
-              containerStyle={styles.chip}
-              onPress={() => setSelectedCategory(
-                selectedCategory === category.value ? null : category.value
-              )}
-            />
-          ))}
-        </View>
-        
-        <Text style={styles.sectionTitle}>Gravidade</Text>
-        <View style={styles.chipContainer}>
-          {severities.map((severity) => (
-            <Chip
-              key={severity.value}
-              title={severity.label}
-              type={selectedSeverity === severity.value ? 'solid' : 'outline'}
-              containerStyle={styles.chip}
-              onPress={() => setSelectedSeverity(
-                selectedSeverity === severity.value ? null : severity.value
-              )}
-            />
-          ))}
-        </View>
-        
-        <View style={styles.modalButtons}>
-          <Button
-            title="Limpar"
-            type="outline"
-            onPress={clearFilters}
-            containerStyle={styles.modalButton}
-          />
-          <Button
-            title="Aplicar"
-            onPress={applyFilters}
-            containerStyle={styles.modalButton}
-          />
-        </View>
-      </Overlay>
+      <NearbyProblemsModal
+        visible={isNearbyModalVisible}
+        onClose={() => setIsNearbyModalVisible(false)}
+        problems={data?.problems || []}
+        userLocation={location}
+        radius={NEARBY_RADIUS}
+        navigation={navigation}
+      />
     </View>
   );
 };
@@ -379,6 +605,29 @@ const styles = StyleSheet.create({
   activeButton: {
     backgroundColor: '#FF5722',
   },
+  activeRadiusButton: {
+    backgroundColor: '#FFB300',
+  },
+  nearbyButton: {
+    backgroundColor: '#4CAF50',
+  },
+  badgeContainer: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: 'red',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   buttonLoader: {
     position: 'absolute',
     right: -8,
@@ -417,7 +666,21 @@ const styles = StyleSheet.create({
   modalButton: {
     width: '45%',
   },
-
+  clusterMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E88E5',
+    borderWidth: 2,
+    borderColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clusterText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  }
 });
 
 export default MapScreen;

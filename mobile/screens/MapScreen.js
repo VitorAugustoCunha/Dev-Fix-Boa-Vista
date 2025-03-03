@@ -322,7 +322,7 @@ const MapScreen = ({ navigation }) => {
       }
     });
   };
-  
+
   // Renderizar o mapa
   return (
     <View style={styles.container}>
@@ -333,8 +333,8 @@ const MapScreen = ({ navigation }) => {
             style={styles.map}
             provider={PROVIDER_GOOGLE}
             initialRegion={{
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
+              latitude: -8.1263,
+              longitude: -34.9038,
               latitudeDelta: 0.02,
               longitudeDelta: 0.02,
             }}

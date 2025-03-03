@@ -1,14 +1,15 @@
 // mobile/screens/ReportProblemScreen.js
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
   Image,
   Alert,
-  Platform
+  Platform,
+  Modal
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -37,12 +38,14 @@ const ReportProblemScreen = ({ navigation }) => {
   const [photos, setPhotos] = useState([]);
   const [errorMsg, setErrorMsg] = useState(null);
   const [markerPosition, setMarkerPosition] = useState(null);
-  
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+
   // Mutation para reportar problema
   const [reportProblem, { loading }] = useMutation(REPORT_PROBLEM, {
     onCompleted: () => {
       Alert.alert(
-        'Sucesso', 
+        'Sucesso',
         'Problema reportado com sucesso!',
         [{ text: 'OK', onPress: () => navigation.navigate('Map') }]
       );
@@ -51,7 +54,7 @@ const ReportProblemScreen = ({ navigation }) => {
       Alert.alert('Erro', error.message || 'Erro ao reportar problema. Tente novamente.');
     }
   });
-  
+
   // Obter localização atual do usuário
   useEffect(() => {
     (async () => {
@@ -60,7 +63,7 @@ const ReportProblemScreen = ({ navigation }) => {
         setErrorMsg('Permissão para acessar a localização foi negada');
         return;
       }
-      
+
       let location = await Location.getCurrentPositionAsync({});
       setLocation(location);
       setMarkerPosition({
@@ -68,7 +71,7 @@ const ReportProblemScreen = ({ navigation }) => {
         longitude: location.coords.longitude,
       });
     })();
-    
+
     // Solicitar permissão para acessar a galeria
     (async () => {
       if (Platform.OS !== 'web') {
@@ -78,7 +81,7 @@ const ReportProblemScreen = ({ navigation }) => {
         }
       }
     })();
-    
+
     // Solicitar permissão para acessar a câmera
     (async () => {
       if (Platform.OS !== 'web') {
@@ -89,7 +92,7 @@ const ReportProblemScreen = ({ navigation }) => {
       }
     })();
   }, []);
-  
+
   // Função para escolher imagem da galeria
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -99,13 +102,13 @@ const ReportProblemScreen = ({ navigation }) => {
       quality: 0.8,
       base64: true,
     });
-    
+
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const newPhotos = [...photos, result.assets[0].uri];
       setPhotos(newPhotos);
     }
   };
-  
+
   // Função para tirar foto com a câmera
   const takePhoto = async () => {
     let result = await ImagePicker.launchCameraAsync({
@@ -114,25 +117,25 @@ const ReportProblemScreen = ({ navigation }) => {
       quality: 0.8,
       base64: true,
     });
-    
+
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const newPhotos = [...photos, result.assets[0].uri];
       setPhotos(newPhotos);
     }
   };
-  
+
   // Função para remover foto
   const removePhoto = (index) => {
     const newPhotos = [...photos];
     newPhotos.splice(index, 1);
     setPhotos(newPhotos);
   };
-  
+
   // Função para atualizar a posição do marcador
   const updateMarkerPosition = (event) => {
     setMarkerPosition(event.nativeEvent.coordinate);
   };
-  
+
   // Categorias disponíveis
   const categories = [
     { label: 'Trânsito', value: 'TRAFFIC' },
@@ -142,54 +145,54 @@ const ReportProblemScreen = ({ navigation }) => {
     { label: 'Iluminação', value: 'PUBLIC_LIGHTING' },
     { label: 'Outros', value: 'OTHERS' },
   ];
-  
+
   // Níveis de gravidade
   const severities = [
     { label: 'Baixa', value: 'LOW', color: '#4CAF50' },
     { label: 'Média', value: 'MEDIUM', color: '#FFC107' },
     { label: 'Alta', value: 'HIGH', color: '#F44336' },
   ];
-  
+
   // Função para validar o formulário
   const validateForm = () => {
     if (!title.trim()) {
       Alert.alert('Erro', 'Por favor, informe um título para o problema');
       return false;
     }
-    
+
     if (!description.trim()) {
       Alert.alert('Erro', 'Por favor, descreva o problema');
       return false;
     }
-    
+
     if (!category) {
       Alert.alert('Erro', 'Por favor, selecione uma categoria');
       return false;
     }
-    
+
     if (!severity) {
       Alert.alert('Erro', 'Por favor, selecione um nível de gravidade');
       return false;
     }
-    
+
     if (!markerPosition) {
       Alert.alert('Erro', 'Por favor, selecione a localização do problema no mapa');
       return false;
     }
-    
+
     return true;
   };
-  
+
   // Função para enviar relatório de problema
   const handleSubmit = () => {
     if (!validateForm()) return;
-    
+
     const photosBase64 = photos.map(photo => {
       // Em uma implementação real, converteríamos cada foto para base64
       // Aqui apenas simulamos isso para o exemplo
       return `data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/...`;
     });
-    
+
     const problemData = {
       title,
       description,
@@ -201,10 +204,10 @@ const ReportProblemScreen = ({ navigation }) => {
       severity,
       photos: photosBase64,
     };
-    
+
     reportProblem({ variables: { problem: problemData } });
   };
-  
+
   if (!location) {
     return (
       <View style={styles.loadingContainer}>
@@ -213,18 +216,18 @@ const ReportProblemScreen = ({ navigation }) => {
       </View>
     );
   }
-  
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.mapContainer}>
         <Text style={styles.sectionTitle}>Localização do Problema</Text>
         <Text style={styles.sectionSubtitle}>Toque no mapa para marcar o local exato</Text>
-        
+
         <MapView
           style={styles.map}
           initialRegion={{
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+            latitude: -8.1263,
+            longitude: -34.9038,
             latitudeDelta: 0.005,
             longitudeDelta: 0.005,
           }}
@@ -238,11 +241,32 @@ const ReportProblemScreen = ({ navigation }) => {
             />
           )}
         </MapView>
+        <Modal visible={isFullScreen} animationType="slide">
+          <MapView
+            style={StyleSheet.absoluteFillObject}
+            initialRegion={{
+              latitude: -8.1263,
+              longitude: -34.9038,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }}
+            onPress={updateMarkerPosition}
+          >
+            {markerPosition && (
+              <Marker
+                coordinate={markerPosition}
+                draggable
+                onDragEnd={updateMarkerPosition}
+              />
+            )}
+          </MapView>
+          <Button title={"Minimizar" } onPress={() => setIsFullScreen(!isFullScreen)} />
+        </Modal>
+        <Button title={"Tela cheia"} style={styles.buttonFullScreen}  onPress={() => setIsFullScreen(!isFullScreen)} />
       </View>
-      
+
       <View style={styles.formContainer}>
         <Text style={styles.sectionTitle}>Detalhes do Problema</Text>
-        
         <Input
           placeholder="Título do problema"
           value={title}
@@ -250,7 +274,7 @@ const ReportProblemScreen = ({ navigation }) => {
           leftIcon={{ type: 'material', name: 'title', color: '#666' }}
           maxLength={100}
         />
-        
+
         <Input
           placeholder="Descreva o problema detalhadamente"
           value={description}
@@ -261,7 +285,7 @@ const ReportProblemScreen = ({ navigation }) => {
           inputContainerStyle={styles.textAreaContainer}
           inputStyle={styles.textArea}
         />
-        
+
         <Text style={styles.sectionSubtitle}>Categoria</Text>
         <View style={styles.chipContainer}>
           {categories.map((item) => (
@@ -274,7 +298,7 @@ const ReportProblemScreen = ({ navigation }) => {
             />
           ))}
         </View>
-        
+
         <Text style={styles.sectionSubtitle}>Gravidade</Text>
         <View style={styles.chipContainer}>
           {severities.map((item) => (
@@ -288,29 +312,29 @@ const ReportProblemScreen = ({ navigation }) => {
             />
           ))}
         </View>
-        
-        <Divider style={styles.divider} />
-        
-        <Text style={styles.sectionTitle}>Fotos</Text>
-      <Text style={styles.sectionSubtitle}>Adicione fotos para mostrar o problema</Text>
 
-      <View style={styles.photoButtons}>
-        <Button
-          title="Galeria"
-          icon={<Ionicons name="images" size={20} color="white" style={styles.buttonIcon} />}
-          buttonStyle={styles.photoButton}
-          containerStyle={styles.photoButtonContainer}
-          onPress={pickImage}
-        />
-        <Button
-          title="Câmera"
-          icon={<Ionicons name="camera" size={20} color="white" style={styles.buttonIcon} />}
-          buttonStyle={styles.photoButton}
-          containerStyle={styles.photoButtonContainer}
-          onPress={takePhoto}
-        />
-      </View>
-        
+        <Divider style={styles.divider} />
+
+        <Text style={styles.sectionTitle}>Fotos</Text>
+        <Text style={styles.sectionSubtitle}>Adicione fotos para mostrar o problema</Text>
+
+        <View style={styles.photoButtons}>
+          <Button
+            title="Galeria"
+            icon={<Ionicons name="images" size={20} color="white" style={styles.buttonIcon} />}
+            buttonStyle={styles.photoButton}
+            containerStyle={styles.photoButtonContainer}
+            onPress={pickImage}
+          />
+          <Button
+            title="Câmera"
+            icon={<Ionicons name="camera" size={20} color="white" style={styles.buttonIcon} />}
+            buttonStyle={styles.photoButton}
+            containerStyle={styles.photoButtonContainer}
+            onPress={takePhoto}
+          />
+        </View>
+
         {photos.length > 0 && (
           <View style={styles.photoContainer}>
             {photos.map((photo, index) => (
@@ -326,7 +350,7 @@ const ReportProblemScreen = ({ navigation }) => {
             ))}
           </View>
         )}
-        
+
         <Button
           title="Enviar Relatório"
           containerStyle={styles.submitButtonContainer}
@@ -374,6 +398,7 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 10,
     marginTop: 5,
+    marginBottom:8
   },
   formContainer: {
     padding: 15,
@@ -445,6 +470,10 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     height: 50,
   },
+  buttonFullScreen:{
+    borderRadius:10,
+    
+  }
 });
 
 export default ReportProblemScreen;

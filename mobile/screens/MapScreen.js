@@ -57,9 +57,9 @@ const GET_HEATMAP_DATA = gql`
 `;
 
 const severityColors = {
-  LOW: '#4CAF50', // Verde
-  MEDIUM: '#FFC107', // Amarelo
-  HIGH: '#F44336', // Vermelho
+  LOW: '#FFD700',    // Amarelo
+  MEDIUM: '#FF9800', // Laranja
+  HIGH: '#F44336',   // Vermelho
 };
 
 const categoryIcons = {
@@ -270,59 +270,110 @@ const MapScreen = ({ navigation }) => {
   };
   
   // Função para agrupar marcadores (simulação de clustering)
-  const groupMarkers = (markers) => {
-    if (!markers || markers.length === 0) return [];
+// No MapScreen.js, modifique a função groupMarkers
+const groupMarkers = (markers) => {
+  if (!markers || markers.length === 0) return [];
+  
+  // Filtrar marcadores por proximidade quando o raio estiver ativo
+  let filteredMarkers = markers;
+  
+  if (showNearbyRadius && location) {
+    const currentPosition = {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude
+    };
     
-    // Esta é uma implementação básica para simular clustering
-    // Em um app real, você usaria um algoritmo mais sofisticado
-    const groups = {};
-    const groupRadius = 0.005; // Aproximadamente 500m
-    
-    markers.forEach(marker => {
+    // Filtrar apenas marcadores dentro do raio
+    filteredMarkers = markers.filter(marker => {
       if (!marker.location || !marker.location.latitude || !marker.location.longitude) {
-        return;
+        return false;
       }
       
-      // Arredondar as coordenadas para agrupar pontos próximos
-      const lat = Math.round(marker.location.latitude / groupRadius) * groupRadius;
-      const lng = Math.round(marker.location.longitude / groupRadius) * groupRadius;
-      const key = `${lat},${lng}`;
-      
-      if (!groups[key]) {
-        groups[key] = [];
+      try {
+        const distance = getDistance(
+          currentPosition,
+          {
+            latitude: marker.location.latitude,
+            longitude: marker.location.longitude
+          }
+        );
+        
+        return distance <= NEARBY_RADIUS;
+      } catch (err) {
+        return false;
       }
-      
-      groups[key].push(marker);
     });
+  }
+  
+  // Se o raio não estiver ativo, mostrar todos os marcadores individualmente
+  if (!showNearbyRadius) {
+    return filteredMarkers.map(marker => {
+      if (!marker.location || !marker.location.latitude || !marker.location.longitude) {
+        return null;
+      }
+      
+      return {
+        id: marker.id,
+        coordinate: {
+          latitude: marker.location.latitude,
+          longitude: marker.location.longitude
+        },
+        severity: marker.severity,
+        isCluster: false,
+        ...marker
+      };
+    }).filter(marker => marker !== null);
+  }
+  
+  // Se o raio estiver ativo, agrupar marcadores (que já estão filtrados por distância)
+  const groups = {};
+  const groupRadius = 0.005; // Aproximadamente 500m
+  
+  filteredMarkers.forEach(marker => {
+    if (!marker.location || !marker.location.latitude || !marker.location.longitude) {
+      return;
+    }
     
-    return Object.entries(groups).map(([key, items]) => {
-      const [lat, lng] = key.split(',').map(Number);
-      
-      if (items.length === 1) {
-        // Retornar marcador único
-        return {
-          id: items[0].id,
-          coordinate: {
-            latitude: items[0].location.latitude,
-            longitude: items[0].location.longitude
-          },
-          severity: items[0].severity,
-          isCluster: false,
-          ...items[0]
-        };
-      } else {
-        // Retornar cluster
-        return {
-          id: `cluster-${key}`,
-          coordinate: { latitude: lat, longitude: lng },
-          count: items.length,
-          isCluster: true,
-          markers: items
-        };
-      }
-    });
-  };
-
+    // Arredondar as coordenadas para agrupar pontos próximos
+    const lat = Math.round(marker.location.latitude / groupRadius) * groupRadius;
+    const lng = Math.round(marker.location.longitude / groupRadius) * groupRadius;
+    const key = `${lat},${lng}`;
+    
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+    
+    groups[key].push(marker);
+  });
+  
+  return Object.entries(groups).map(([key, items]) => {
+    const [lat, lng] = key.split(',').map(Number);
+    
+    if (items.length === 1) {
+      // Retornar marcador único
+      return {
+        id: items[0].id,
+        coordinate: {
+          latitude: items[0].location.latitude,
+          longitude: items[0].location.longitude
+        },
+        severity: items[0].severity,
+        isCluster: false,
+        ...items[0]
+      };
+    } else {
+      // Retornar cluster
+      return {
+        id: `cluster-${key}`,
+        coordinate: { latitude: lat, longitude: lng },
+        count: items.length,
+        isCluster: true,
+        markers: items
+      };
+    }
+  });
+};
+  
   // Renderizar o mapa
   return (
     <View style={styles.container}>

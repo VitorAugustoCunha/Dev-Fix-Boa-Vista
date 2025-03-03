@@ -141,40 +141,39 @@ export default function App() {
     bootstrapAsync();
   }, []);
 
-  const authContext = {
-// No frontend, após receber o custom token
-    signIn: async (customToken) => {
-      try {
-        // Troque o custom token por um ID token
-        const userCredential = await firebase.auth().signInWithCustomToken(customToken);
-        const idToken = await userCredential.user.getIdToken();
-        
-        // Use o ID token para autenticação
-        await AsyncStorage.setItem('userToken', idToken);
-        // ...resto do código
-      } catch (error) {
-        console.error("Erro ao obter ID token:", error);
-      }
-    },
-    signOut: async () => {
-      try {
-        await AsyncStorage.removeItem('userToken');
-        await AsyncStorage.removeItem('userId');
-        setState({ ...state, userToken: null, userId: null });
-      } catch (e) {
-        console.log('Erro ao remover dados de autenticação', e);
-      }
-    },
-    signUp: async (data) => {
-      try {
-        await AsyncStorage.setItem('userToken', data.token);
-        await AsyncStorage.setItem('userId', data.userId);
-        setState({ ...state, userToken: data.token, userId: data.userId });
-      } catch (e) {
-        console.log('Erro ao salvar dados de autenticação', e);
-      }
-    },
-  };
+// Substitua o authContext por esta versão corrigida
+const authContext = {
+  signIn: async (data) => {
+    try {
+      // Agora o token já é um JWT ou ID token do Firebase
+      // Não precisamos mais trocar tokens
+      await AsyncStorage.setItem('userToken', data.token);
+      await AsyncStorage.setItem('userId', data.userId);
+      setState({ ...state, userToken: data.token, userId: data.userId });
+    } catch (e) {
+      console.error('Erro ao salvar dados de autenticação', e);
+    }
+  },
+  signOut: async () => {
+    try {
+      await AsyncStorage.removeItem('userToken');
+      await AsyncStorage.removeItem('userId');
+      setState({ ...state, userToken: null, userId: null });
+    } catch (e) {
+      console.error('Erro ao remover dados de autenticação', e);
+    }
+  },
+  signUp: async (data) => {
+    try {
+      // Mesmo processo do signIn
+      await AsyncStorage.setItem('userToken', data.token);
+      await AsyncStorage.setItem('userId', data.userId);
+      setState({ ...state, userToken: data.token, userId: data.userId });
+    } catch (e) {
+      console.error('Erro ao salvar dados de autenticação', e);
+    }
+  },
+};
 
   if (state.isLoading) {
     return null; // Ou um componente de loading
